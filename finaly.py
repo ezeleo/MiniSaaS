@@ -7,7 +7,7 @@ st.sidebar.title("🔐 Acesso Restrito")
 senha_cliente = st.sidebar.text_input("Digite sua Chave de Licença:", type="password")
 
 # Chave válida para o cliente (pode ser consultada em banco de dados ou lista)
-CHAVE_VALIDA = "CLIENTE_PREMIUM_2026"
+CHAVE_VALIDA = "python2026"
 
 if senha_cliente != CHAVE_VALIDA:
     st.title("🔒 Sistema Bloqueado")
