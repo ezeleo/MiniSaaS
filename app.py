@@ -5,7 +5,7 @@ import io
 import unicodedata
 
 # ==============================================================================
-# CONFIGURAÇÃO E AUTENTICAÇÃO
+# CONFIGURAÇÃO E AUTENTICAÇÃO (BANCO DE LICENÇAS)
 # ==============================================================================
 st.set_page_config(
     page_title="Gestor Financeiro & Precificação E-Commerce",
@@ -13,20 +13,30 @@ st.set_page_config(
     layout="wide"
 )
 
+# Banco de Licenças Ativas (Chave -> Dados do Cliente)
+BANCO_DE_LICENCAS = {
+    "LICENSA-2026": {"cliente": "Demonstração", "ativo": True},
+    "CLI-8849-X9": {"cliente": "Loja Exemplo 1", "ativo": True},
+    "CLI-9921-A2": {"cliente": "Loja Exemplo 2", "ativo": True},
+    "Python.2026": {"cliente": "Master Admin", "ativo": True},
+}
+
 st.sidebar.title("🔐 Acesso Restrito")
-CHAVES_ATIVAS = [
-    "LICENSA-2026",
-    "CLI-8849-X9",
-    "CLI-9921-A2",
-    "Python.2026"
-]
+senha_cliente = st.sidebar.text_input("Digite sua Chave de Licença:", type="password").strip()
 
-senha_cliente = st.sidebar.text_input("Digite sua Chave de Licença:", type="password")
-
-if senha_cliente not in CHAVES_ATIVAS:
+if not senha_cliente:
     st.title("🔒 Sistema Bloqueado")
-    st.warning("Insira uma chave de licença válida na barra lateral para liberar o acesso ao dashboard.")
+    st.info("👋 Seja bem-vindo! Insira sua chave de licença na barra lateral para liberar as ferramentas.")
     st.stop()
+
+if senha_cliente not in BANCO_DE_LICENCAS or not BANCO_DE_LICENCAS[senha_cliente]["ativo"]:
+    st.title("🔒 Licença Inválida ou Expirada")
+    st.error("A chave informada não existe ou foi desativada.")
+    st.info("💡 Adquira seu acesso ou solicite suporte para reativar sua licença.")
+    st.stop()
+
+# Saudação personalizada após validação
+st.sidebar.success(f"Bem-vindo, **{BANCO_DE_LICENCAS[senha_cliente]['cliente']}**!")
 
 # --- NAVEGAÇÃO ---
 st.sidebar.title("📌 Menu Principal")
