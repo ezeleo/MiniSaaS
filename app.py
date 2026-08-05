@@ -15,10 +15,10 @@ st.set_page_config(
 
 # Banco de Licenças Ativas (Chave -> Dados do Cliente)
 BANCO_DE_LICENCAS = {
-    "LICENSA-2026": {"cliente": "Demonstração", "ativo": True},
-    "CLI-8849-X9": {"cliente": "Loja Exemplo 1", "ativo": True},
-    "CLI-9921-A2": {"cliente": "Loja Exemplo 2", "ativo": True},
-    "Python.2026": {"cliente": "Master Admin", "ativo": True},
+    "LICENSA-2026": {"cliente": "Vitória", "ativo": True},
+    "CLI-22: {"cliente": "Leonardo", "ativo": True},
+    "CLI-33": {"cliente": "Annaliz", "ativo": True},
+    "Python.2026": {"cliente": "Renata", "ativo": True},
 }
 
 st.sidebar.title("🔐 Acesso Restrito")
