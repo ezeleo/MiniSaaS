@@ -16,8 +16,8 @@ st.set_page_config(
 # Banco de Licenças Ativas (Chave -> Dados do Cliente)
 BANCO_DE_LICENCAS = {
     "LICENSA-2026": {"cliente": "Vitória", "ativo": True},
-    "CLI-22: {"cliente": "Leonardo", "ativo": True},
-    "CLI-33": {"cliente": "Annaliz", "ativo": True},
+    "CLI-8849-X9": {"cliente": "Leonardo", "ativo": True},
+    "CLI-9921-A2": {"cliente": "Annaliz", "ativo": True},
     "Python.2026": {"cliente": "Renata", "ativo": True},
 }
 
@@ -80,7 +80,7 @@ def limpar_e_converter_valor(serie):
 def auto_detectar_estrutura(df):
     """
     Analisa os nomes das colunas de QUALQUER planilha e tenta mapear
-    automaticamente os conceitos de Data, Descrição, Categoria, Tipo e Valor.
+    automática os conceitos de Data, Descrição, Categoria, Tipo e Valor.
     """
     cols_norm = {col: remover_acentos(col) for col in df.columns}
     
@@ -132,7 +132,7 @@ def normalizar_df_financeiro(df, col_data, col_desc, col_cat, col_tipo, col_val)
         df_proc.loc[df_proc['Valor_Bruto'] < 0, 'Tipo'] = 'Saída'
         df_proc['Valor'] = df_proc['Valor_Bruto'].abs()
     else:
-        # Se não há coluna de Tipo na planilha, deduce pelo sinal (- Saída / + Entrada)
+        # Se não há coluna de Tipo na planilha, deduz pelo sinal (- Saída / + Entrada)
         df_proc['Tipo'] = df_proc['Valor_Bruto'].apply(lambda x: 'Saída' if x < 0 else 'Entrada')
         df_proc['Valor'] = df_proc['Valor_Bruto'].abs()
         
