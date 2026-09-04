@@ -6,5 +6,5 @@ Aplicação web desenvolvida em Python e Streamlit para gestão financeira e cá
 
 1. **Clone o repositório:**
    ```bash
-   git clone <https://minisaas-hmsqrocqtfphv9sfoti8in.streamlit.app/>
+   git clone <https://minisaas-9gb4kcrshka78fdwgvt8ba.streamlit.app/>
    cd meu_saas_precificacao
