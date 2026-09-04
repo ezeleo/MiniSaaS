@@ -3,9 +3,15 @@ import pandas as pd
 import plotly.express as px
 import io
 import unicodedata
+from auth_service import (
+    autenticar_usuario, 
+    criar_novo_usuario, 
+    listar_todos_lojistas, 
+    alternar_status_pagamento
+)
 
 # ==============================================================================
-# CONFIGURAÇÃO E AUTENTICAÇÃO (BANCO DE LICENÇAS)
+# CONFIGURAÇÃO E AUTENTICAÇÃO (SUPABASE SAAS)
 # ==============================================================================
 st.set_page_config(
     page_title="Gestor Financeiro & Precificação E-Commerce",
@@ -13,37 +19,106 @@ st.set_page_config(
     layout="wide"
 )
 
-# Banco de Licenças Ativas (Chave -> Dados do Cliente)
-BANCO_DE_LICENCAS = {
-    "LICENSA-2026": {"cliente": "Vitória", "ativo": True},
-    "CLI-8849-X9": {"cliente": "Leonardo", "ativo": True},
-    "CLI-9921-A2": {"cliente": "Annaliz", "ativo": True},
-    "Python.2026": {"cliente": "Renata", "ativo": True},
-}
+# Inicializa o estado da sessão de autenticação no Streamlit
+if "usuario_logado" not in st.session_state:
+    st.session_state.usuario_logado = False
+if "dados_usuario" not in st.session_state:
+    st.session_state.dados_usuario = None
 
-st.sidebar.title("🔐 Acesso Restrito")
-senha_cliente = st.sidebar.text_input("Digite sua Chave de Licença:", type="password").strip()
+# --- TELA DE AUTENTICAÇÃO (LOGIN / CADASTRO) ---
+if not st.session_state.usuario_logado:
+    st.title("🔒 Acesso ao Sistema SaaS")
+    st.caption("Acesse sua conta ou cadastre sua loja para utilizar a plataforma.")
+    
+    aba_login, aba_cadastro = st.tabs(["Fazer Login", "Criar Nova Conta"])
+    
+    # Aba 1: Login de Usuário Existente
+    with aba_login:
+        st.subheader("Login de Lojista")
+        email_login = st.text_input("E-mail", key="login_email")
+        senha_login = st.text_input("Senha", type="password", key="login_senha")
+        
+        if st.button("Entrar", type="primary"):
+            if not email_login or not senha_login:
+                st.warning("Preencha o e-mail e a senha.")
+            else:
+                sucesso, resultado = autenticar_usuario(email_login, senha_login)
+                if sucesso:
+                    st.session_state.usuario_logado = True
+                    st.session_state.dados_usuario = resultado
+                    st.success("Login realizado com sucesso!")
+                    st.rerun()
+                else:
+                    st.error(resultado)
 
-if not senha_cliente:
-    st.title("🔒 Sistema Bloqueado")
-    st.info("👋 Seja bem-vindo! Insira sua chave de licença na barra lateral para liberar as ferramentas.")
-    st.stop()
+    # Aba 2: Cadastro de Novo Lojista
+    with aba_cadastro:
+        st.subheader("Cadastrar Novo Lojista")
+        nome_loja = st.text_input("Nome da sua Loja")
+        email_cadastro = st.text_input("E-mail", key="cad_email")
+        senha_cadastro = st.text_input("Senha (mínimo 6 caracteres)", type="password", key="cad_senha")
+        
+        if st.button("Cadastrar Loja"):
+            if not nome_loja or not email_cadastro or not senha_cadastro:
+                st.warning("Preencha todos os campos para continuar.")
+            else:
+                sucesso, mensagem = criar_novo_usuario(email_cadastro, senha_cadastro, nome_loja)
+                if sucesso:
+                    st.success(mensagem)
+                else:
+                    st.error(mensagem)
 
-if senha_cliente not in BANCO_DE_LICENCAS or not BANCO_DE_LICENCAS[senha_cliente]["ativo"]:
-    st.title("🔒 Licença Inválida ou Expirada")
-    st.error("A chave informada não existe ou foi desativada.")
-    st.info("💡 Adquira seu acesso ou solicite suporte para reativar sua licença.")
-    st.stop()
+    st.stop()  # Interrompe a execução aqui até o usuário realizar o login
 
-# Saudação personalizada após validação
-st.sidebar.success(f"Bem-vindo, **{BANCO_DE_LICENCAS[senha_cliente]['cliente']}**!")
+# --- BARRA LATERAL (INFORMAÇÕES DO LOJISTA LOGADO) ---
+st.sidebar.title("🏢 Painel do Lojista")
+dados_user = st.session_state.dados_usuario or {}
 
-# --- NAVEGAÇÃO ---
+st.sidebar.success(f"**{dados_user.get('nome_loja', 'Minha Loja')}**")
+st.sidebar.caption(f"👤 {dados_user.get('email', '')}")
+st.sidebar.caption(f"⭐ Plano: {dados_user.get('plano', 'Gratuito')}")
+
+if st.sidebar.button("🚪 Sair / Logout"):
+    st.session_state.usuario_logado = False
+    st.session_state.dados_usuario = None
+    st.rerun()
+
+st.sidebar.markdown("---")
+
+# --- NAVEGAÇÃO, STATUS DE PAGAMENTO E VERIFICAÇÃO DE ADMIN ---
+perfil_atual = str(dados_user.get("perfil", "user")).strip().lower()
+eh_admin = perfil_atual == "admin"
+est_pago = dados_user.get("pago", False)
+
+# Controle de rotas com base no pagamento/perfil
+if eh_admin:
+    opcoes_menu = [
+        "📊 Fluxo de Caixa & DRE Universal", 
+        "🧮 Calculadora de Precificação",
+        "👑 Painel Admin (Gestão de Licenças)"
+    ]
+elif est_pago:
+    opcoes_menu = [
+        "📊 Fluxo de Caixa & DRE Universal", 
+        "🧮 Calculadora de Precificação"
+    ]
+else:
+    opcoes_menu = ["🔒 Acesso Bloqueado"]
+
 st.sidebar.title("📌 Menu Principal")
-pagina = st.sidebar.radio(
-    "Navegar para:",
-    ["📊 Fluxo de Caixa & DRE Universal", "🧮 Calculadora de Precificação"]
-)
+pagina = st.sidebar.radio("Navegar para:", opcoes_menu)
+
+# ==============================================================================
+# TELA DE BLOQUEIO (PARA USUÁRIOS NÃO PAGOS E NÃO ADMINS)
+# ==============================================================================
+if pagina == "🔒 Acesso Bloqueado" or (not eh_admin and not est_pago):
+    st.error("⛔ Acesso Restrito / Licença Inativa")
+    st.warning(
+        "Sua conta foi registrada com sucesso, porém está **aguardando a liberação de pagamento** "
+        "para acessar as ferramentas da plataforma."
+    )
+    st.info("Entre em contato com o suporte/administrador para ativar seu acesso. Após a liberação, atualize esta página.")
+    st.stop()
 
 # ==============================================================================
 # MOTOR INTELIGENTE DE PROCESSAMENTO DE PLANILHAS (MOTOR HEURÍSTICO)
@@ -64,14 +139,9 @@ def limpar_e_converter_valor(serie):
     if pd.api.types.is_numeric_dtype(serie):
         return serie.fillna(0.0).astype(float)
     
-    # Remove R$, espaços e caracteres invisíveis
     s = serie.astype(str).str.replace('R$', '', regex=False).str.strip()
-    
-    # Identifica formato brasileiro com vírgula
     com_virgula = s.str.contains(',', regex=False, na=False)
     s_br = s.str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-    
-    # Substitui apenas se houver vírgula, preservando floats normais em string
     s_final = s.where(~com_virgula, s_br)
 
     return pd.to_numeric(s_final, errors='coerce').fillna(0.0)
@@ -80,7 +150,7 @@ def limpar_e_converter_valor(serie):
 def auto_detectar_estrutura(df):
     """
     Analisa os nomes das colunas de QUALQUER planilha e tenta mapear
-    automática os conceitos de Data, Descrição, Categoria, Tipo e Valor.
+    automaticamente os conceitos de Data, Descrição, Categoria, Tipo e Valor.
     """
     cols_norm = {col: remover_acentos(col) for col in df.columns}
     
@@ -106,16 +176,11 @@ def auto_detectar_estrutura(df):
 
 
 def normalizar_df_financeiro(df, col_data, col_desc, col_cat, col_tipo, col_val):
-    """
-    Normaliza qualquer Dataframe bruto para uma estrutura padrão.
-    Aplica remoção de acentos para classificar Entrada e Saída sem falhas.
-    """
+    """Normaliza qualquer Dataframe bruto para uma estrutura padrão."""
     df_proc = pd.DataFrame()
     
-    # 1. Trata Valor
     df_proc['Valor_Bruto'] = limpar_e_converter_valor(df[col_val])
     
-    # 2. Trata Tipo (Entrada / Saída)
     if col_tipo and col_tipo != "-- Não utilizar --":
         tipo_limpo = df[col_tipo].astype(str).apply(remover_acentos)
         
@@ -127,28 +192,22 @@ def normalizar_df_financeiro(df, col_data, col_desc, col_cat, col_tipo, col_val)
         }
         
         df_proc['Tipo'] = tipo_limpo.map(mapeamento_tipos).fillna('Outros')
-        
-        # Fallback: Se o valor for negativo na planilha, ajusta como Saída
         df_proc.loc[df_proc['Valor_Bruto'] < 0, 'Tipo'] = 'Saída'
         df_proc['Valor'] = df_proc['Valor_Bruto'].abs()
     else:
-        # Se não há coluna de Tipo na planilha, deduz pelo sinal (- Saída / + Entrada)
         df_proc['Tipo'] = df_proc['Valor_Bruto'].apply(lambda x: 'Saída' if x < 0 else 'Entrada')
         df_proc['Valor'] = df_proc['Valor_Bruto'].abs()
         
-    # 3. Trata Categoria
     if col_cat and col_cat != "-- Não utilizar --":
         df_proc['Categoria'] = df[col_cat].fillna("Geral / Outros").astype(str)
     else:
         df_proc['Categoria'] = "Geral"
         
-    # 4. Trata Descrição
     if col_desc and col_desc != "-- Não utilizar --":
         df_proc['Descrição'] = df[col_desc].fillna("-").astype(str)
     else:
         df_proc['Descrição'] = "Sem Descrição"
         
-    # 5. Trata Data
     if col_data and col_data != "-- Não utilizar --":
         df_proc['Data'] = pd.to_datetime(df[col_data], errors='coerce')
     else:
@@ -158,11 +217,14 @@ def normalizar_df_financeiro(df, col_data, col_desc, col_cat, col_tipo, col_val)
 
 
 def carregar_dataframe_seguro(uploaded_file):
-    """
-    Leitor universal resiliente para Excel/CSV que trata abas,
-    cabeçalhos deslocados e limpa espaços vazios.
-    """
+    """Leitor universal para Excel/CSV com trava de tamanho de arquivo."""
     try:
+        # Trava de segurança: limita tamanho máximo do arquivo em 15 MB
+        TAMANHO_MAX_MB = 15
+        if uploaded_file.size > TAMANHO_MAX_MB * 1024 * 1024:
+            st.error(f"⚠️ O arquivo excede o tamanho máximo permitido de {TAMANHO_MAX_MB}MB.")
+            return None
+
         nome_arquivo = uploaded_file.name.lower()
         
         if nome_arquivo.endswith('.csv'):
@@ -197,7 +259,6 @@ def carregar_dataframe_seguro(uploaded_file):
             if df is None:
                 df = pd.read_excel(excel_file, sheet_name=aba_selecionada)
 
-        # Limpa cabeçalhos (remove espaços extras no início/fim)
         df.columns = [str(col).strip() for col in df.columns]
         df = df.dropna(how='all', axis=1).dropna(how='all', axis=0)
         return df
@@ -256,7 +317,6 @@ if pagina == "📊 Fluxo de Caixa & DRE Universal":
         df_bruto = carregar_dataframe_seguro(arquivo_carregado)
 
         if df_bruto is not None and not df_bruto.empty:
-            # 2. Detecção Automática das Colunas
             col_dt_auto, col_desc_auto, col_cat_auto, col_tipo_auto, col_val_auto = auto_detectar_estrutura(df_bruto)
 
             st.sidebar.markdown("---")
@@ -274,7 +334,6 @@ if pagina == "📊 Fluxo de Caixa & DRE Universal":
             sel_tipo = st.sidebar.selectbox("Coluna de Tipo (Entrada/Saída):", todas_cols, index=get_index(col_tipo_auto))
             sel_val  = st.sidebar.selectbox("Coluna de Valor (R$):", todas_cols, index=get_index(col_val_auto))
 
-            # 3. Processamento e Normalização dos Dados
             if sel_val != "-- Não utilizar --":
                 df_tratado = normalizar_df_financeiro(
                     df_bruto, sel_data, sel_desc, sel_cat, sel_tipo, sel_val
@@ -284,7 +343,6 @@ if pagina == "📊 Fluxo de Caixa & DRE Universal":
                     st.warning("⚠️ Não foram encontrados lançamentos válidos com os parâmetros atuais.")
                     st.stop()
 
-                # --- MÉTRICAS PRINCIPAIS (ENTRADA, SAÍDA E SALDO) ---
                 total_entradas = df_tratado[df_tratado['Tipo'] == 'Entrada']['Valor'].sum()
                 total_saidas = df_tratado[df_tratado['Tipo'] == 'Saída']['Valor'].sum()
                 saldo_atual = total_entradas - total_saidas
@@ -296,7 +354,6 @@ if pagina == "📊 Fluxo de Caixa & DRE Universal":
 
                 st.markdown("---")
 
-                # --- ANÁLISE GRÁFICA ---
                 cG1, cG2 = st.columns(2)
 
                 with cG1:
@@ -327,7 +384,6 @@ if pagina == "📊 Fluxo de Caixa & DRE Universal":
                     else:
                         st.info("Nenhuma saída identificada nesta planilha.")
 
-                # Tabela Consolidada
                 with st.expander("🔍 Visualizar Planilha Normalizada"):
                     st.dataframe(df_tratado, use_container_width=True)
 
@@ -381,7 +437,6 @@ elif pagina == "🧮 Calculadora de Precificação":
         else:
             lucro_fixo_alvo = st.number_input("Lucro Líquido Desejado [R$]", min_value=1.0, value=25.0, step=1.0)
 
-    # CÁLCULOS MATEMÁTICOS DA PRECIFICAÇÃO
     custo_direto_total = custo_unitario + custo_embalagem + custo_frete + taxa_fixa_canal
     taxas_percentuais_totais = comissao_pct + imposto_pct
 
@@ -418,7 +473,7 @@ elif pagina == "🧮 Calculadora de Precificação":
             if lucro_liquido_real < 5.00:
                 st.warning(f"⚠️ **Lucro Baixo:** Apenas R$ {lucro_liquido_real:.2f} de margem líquida unitária.")
             else:
-                st.success(f"✅ **Margem Protegida:** Excelente retorno líquido.")
+                st.success("✅ **Margem Protegida:** Excelente retorno líquido.")
 
             st.markdown("---")
             st.subheader("📊 DRE Unitário")
@@ -433,3 +488,41 @@ elif pagina == "🧮 Calculadora de Precificação":
             st.plotly_chart(fig_pizza_prec, use_container_width=True)
         else:
             st.error("A soma das taxas e margens ultrapassa 100%.")
+
+# ==============================================================================
+# PÁGINA 3: PAINEL ADMINISTRATIVO (GESTÃO DE LICENÇAS)
+# ==============================================================================
+elif pagina == "👑 Painel Admin (Gestão de Licenças)" and eh_admin:
+    st.title("👑 Painel Administrativo")
+    st.caption("Gerencie o acesso das lojas cadastradas e libere pagamentos.")
+
+    if st.button("🔄 Atualizar Lista de Lojas"):
+        st.rerun()
+
+    lojistas = listar_todos_lojistas()
+
+    if lojistas:
+        st.subheader("📋 Lista de Lojas Registradas")
+        st.markdown("---")
+        
+        for item in lojistas:
+            col_info, col_status, col_acao = st.columns([3, 2, 2])
+            
+            with col_info:
+                st.write(f"**{item.get('nome_loja', 'Loja Sem Nome')}**")
+                st.caption(f"E-mail: {item.get('email', 'N/A')}")
+            
+            with col_status:
+                if item.get("pago"):
+                    st.success("🟢 Acesso Liberado")
+                else:
+                    st.error("🔴 Aguardando Pagamento")
+                    
+            with col_acao:
+                btn_rotulo = "Bloquear" if item.get("pago") else "Liberar Acesso"
+                if st.button(btn_rotulo, key=f"btn_{item['id']}"):
+                    if alternar_status_pagamento(item['id'], item.get("pago", False)):
+                        st.success("Status atualizado com sucesso!")
+                        st.rerun()
+    else:
+        st.info("Nenhum lojista cadastrado até o momento.")
