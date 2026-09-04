@@ -93,45 +93,36 @@ def autenticar_usuario(email: str, senha: str):
     except Exception as e:
         return False, f"❌ Erro ao autenticar: {str(e)}"
 
-# ==============================================================================
-# FUNÇÕES DE ADMINISTRAÇÃO (GESTÃO DE LICENÇAS)
-# ==============================================================================
 
 # ==============================================================================
 # FUNÇÕES DE ADMINISTRAÇÃO (GESTÃO DE LICENÇAS)
 # ==============================================================================
 
 def listar_todos_lojistas():
-    """Busca todas as lojas cadastradas passando o token JWT da sessão ativa."""
+    """Busca todas as lojas cadastradas autenticando a requisição com o token JWT ativo."""
     try:
-        # Recupera a sessão atual do usuário logado
         sessao_atual = supabase.auth.get_session()
         
         if sessao_atual and sessao_atual.access_token:
-            # Cria um cliente temporário autenticado com o token do Admin
-            headers = {"Authorization": f"Bearer {sessao_atual.access_token}"}
-            resposta = supabase.table("perfis_lojistas").select("*").headers(headers).execute()
-        else:
-            # Fallback caso a sessão não esteja salva no cliente local
-            resposta = supabase.table("perfis_lojistas").select("*").execute()
+            # Injeta o token do usuário logado diretamente no motor PostgREST
+            supabase.postgrest.auth(sessao_atual.access_token)
             
+        resposta = supabase.table("perfis_lojistas").select("*").execute()
         return resposta.data if resposta.data else []
     except Exception as e:
         st.error(f"Erro ao buscar lojistas: {e}")
         return []
 
 def alternar_status_pagamento(user_id: str, status_atual: bool):
-    """Inverte o status de pagamento de um lojista com autorização JWT."""
+    """Inverte o status de pagamento de um lojista com a permissão do usuário logado."""
     try:
         novo_status = not status_atual
         sessao_atual = supabase.auth.get_session()
         
         if sessao_atual and sessao_atual.access_token:
-            headers = {"Authorization": f"Bearer {sessao_atual.access_token}"}
-            supabase.table("perfis_lojistas").update({"pago": novo_status}).eq("id", user_id).headers(headers).execute()
-        else:
-            supabase.table("perfis_lojistas").update({"pago": novo_status}).eq("id", user_id).execute()
+            supabase.postgrest.auth(sessao_atual.access_token)
             
+        supabase.table("perfis_lojistas").update({"pago": novo_status}).eq("id", user_id).execute()
         return True
     except Exception as e:
         st.error(f"Erro ao alterar status de pagamento: {e}")
