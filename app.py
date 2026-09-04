@@ -27,7 +27,7 @@ if "dados_usuario" not in st.session_state:
 
 # --- TELA DE AUTENTICAÇÃO (LOGIN / CADASTRO) ---
 if not st.session_state.usuario_logado:
-    st.title("🔒 Acesso ao Sistema SaaS")
+    st.title("🔒 Acesso ao SaaS de Controle Financeiro ")
     st.caption("Acesse sua conta ou cadastre sua loja para utilizar a plataforma.")
     
     aba_login, aba_cadastro = st.tabs(["Fazer Login", "Criar Nova Conta"])
