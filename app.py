@@ -7,7 +7,9 @@ from auth_service import (
     autenticar_usuario, 
     criar_novo_usuario, 
     listar_todos_lojistas, 
-    alternar_status_pagamento
+    alternar_status_pagamento,
+    gerar_link_pagamento_mp,
+    verificar_e_atualizar_pagamento_mp
 )
 
 # ==============================================================================
@@ -27,7 +29,7 @@ if "dados_usuario" not in st.session_state:
 
 # --- TELA DE AUTENTICAÇÃO (LOGIN / CADASTRO) ---
 if not st.session_state.usuario_logado:
-    st.title("🔒 Acesso ao SaaS de Controle Financeiro ")
+    st.title("🔒 Acesso ao Sistema SaaS")
     st.caption("Acesse sua conta ou cadastre sua loja para utilizar a plataforma.")
     
     aba_login, aba_cadastro = st.tabs(["Fazer Login", "Criar Nova Conta"])
@@ -68,7 +70,7 @@ if not st.session_state.usuario_logado:
                 else:
                     st.error(mensagem)
 
-    st.stop()  # Interrompe a execução aqui até o usuário realizar o login
+    st.stop()
 
 # --- BARRA LATERAL (INFORMAÇÕES DO LOJISTA LOGADO) ---
 st.sidebar.title("🏢 Painel do Lojista")
@@ -76,7 +78,15 @@ dados_user = st.session_state.dados_usuario or {}
 
 st.sidebar.success(f"**{dados_user.get('nome_loja', 'Minha Loja')}**")
 st.sidebar.caption(f"👤 {dados_user.get('email', '')}")
-st.sidebar.caption(f"⭐ Plano: {dados_user.get('plano', 'Gratuito')}")
+
+# --- REGRAS DE NAVEGAÇÃO E RECONHECIMENTO DO ADMIN ---
+perfil_atual = str(dados_user.get("perfil", "user")).strip().lower()
+eh_admin = (perfil_atual == "admin")
+
+# O Admin é automaticamente considerado pago
+est_pago = True if eh_admin else dados_user.get("pago", False)
+
+st.sidebar.caption(f"⭐ Plano: {'Administrador' if eh_admin else dados_user.get('plano', 'Gratuito')}")
 
 if st.sidebar.button("🚪 Sair / Logout"):
     st.session_state.usuario_logado = False
@@ -84,11 +94,6 @@ if st.sidebar.button("🚪 Sair / Logout"):
     st.rerun()
 
 st.sidebar.markdown("---")
-
-# --- NAVEGAÇÃO, STATUS DE PAGAMENTO E VERIFICAÇÃO DE ADMIN ---
-perfil_atual = str(dados_user.get("perfil", "user")).strip().lower()
-eh_admin = perfil_atual == "admin"
-est_pago = dados_user.get("pago", False)
 
 # Controle de rotas com base no pagamento/perfil
 if eh_admin:
@@ -117,7 +122,53 @@ if pagina == "🔒 Acesso Bloqueado" or (not eh_admin and not est_pago):
         "Sua conta foi registrada com sucesso, porém está **aguardando a liberação de pagamento** "
         "para acessar as ferramentas da plataforma."
     )
-    st.info("Entre em contato com o suporte/administrador para ativar seu acesso. Após a liberação, atualize esta página.")
+    
+    user_id_atual = dados_user.get("user_id")
+    
+    # Integração automática com Mercado Pago na tela de bloqueio
+    link_mp = gerar_link_pagamento_mp(
+        user_id=user_id_atual,
+        email=dados_user.get("email")
+    )
+
+    if link_mp:
+        st.markdown(
+            f"""
+            <a href="{link_mp}" target="_blank">
+                <button style="
+                    background-color: #009EE3;
+                    color: white;
+                    padding: 12px 24px;
+                    border: none;
+                    border-radius: 6px;
+                    font-size: 16px;
+                    font-weight: bold;
+                    cursor: pointer;
+                    width: 100%;
+                    margin-top: 10px;
+                ">
+                    💳 Realizar Pagamento via Mercado Pago (Pix / Cartão)
+                </button>
+            </a>
+            """,
+            unsafe_allow_html=True
+        )
+        st.caption("Após concluir o pagamento na aba do Mercado Pago, volte aqui e clique no botão de checagem abaixo.")
+    else:
+        st.info("Entre em contato com o suporte/administrador para ativar seu acesso.")
+    
+    st.markdown("---")
+
+    if st.button("🔄 Já efetuei o pagamento / Checar Aprovação"):
+        with st.spinner("Consultando aprovação no Mercado Pago..."):
+            foi_pago = verificar_e_atualizar_pagamento_mp(user_id_atual)
+            if foi_pago:
+                st.session_state.dados_usuario["pago"] = True
+                st.success("🎉 Pagamento confirmado com sucesso! Liberando acesso...")
+                st.rerun()
+            else:
+                st.error("Ainda não identificamos a aprovação do seu pagamento. Se pagou via Pix há poucos segundos, aguarde uns instantes e clique novamente.")
+
     st.stop()
 
 # ==============================================================================
@@ -219,7 +270,6 @@ def normalizar_df_financeiro(df, col_data, col_desc, col_cat, col_tipo, col_val)
 def carregar_dataframe_seguro(uploaded_file):
     """Leitor universal para Excel/CSV com trava de tamanho de arquivo."""
     try:
-        # Trava de segurança: limita tamanho máximo do arquivo em 15 MB
         TAMANHO_MAX_MB = 15
         if uploaded_file.size > TAMANHO_MAX_MB * 1024 * 1024:
             st.error(f"⚠️ O arquivo excede o tamanho máximo permitido de {TAMANHO_MAX_MB}MB.")
@@ -348,9 +398,9 @@ if pagina == "📊 Fluxo de Caixa & DRE Universal":
                 saldo_atual = total_entradas - total_saidas
 
                 col1, col2, col3 = st.columns(3)
-                col1.metric("🟢 ENTRADAS (RECEITAS)", f"R$ {total_entradas:,.2f}")
-                col2.metric("🔴 SAÍDAS (DESPESAS)", f"R$ {total_saidas:,.2f}")
-                col3.metric("🔵 SALDO ATUAL OPERACIONAL", f"R$ {saldo_atual:,.2f}")
+                col1.metric("🟢 ENTRADAS (RECEITAS)", f"R$ {total_entradas:,.2f}".replace(',', 'v').replace('.', ',').replace('v', '.'))
+                col2.metric("🔴 SAÍDAS (DESPESAS)", f"R$ {total_saidas:,.2f}".replace(',', 'v').replace('.', ',').replace('v', '.'))
+                col3.metric("🔵 SALDO ATUAL OPERACIONAL", f"R$ {saldo_atual:,.2f}".replace(',', 'v').replace('.', ',').replace('v', '.'))
 
                 st.markdown("---")
 
@@ -459,12 +509,12 @@ elif pagina == "🧮 Calculadora de Precificação":
         if preco_sugerido > 0:
             st.metric(
                 label="PREÇO DE VENDA RECOMENDADO", 
-                value=f"R$ {preco_sugerido:,.2f}",
+                value=f"R$ {preco_sugerido:,.2f}".replace(',', 'v').replace('.', ',').replace('v', '.'),
                 delta=f"Markup: {markup_multiplicador:.2f}x o custo"
             )
 
             col_m1, col_m2 = st.columns(2)
-            col_m1.metric("Lucro Líquido por Venda", f"R$ {lucro_liquido_real:,.2f}")
+            col_m1.metric("Lucro Líquido por Venda", f"R$ {lucro_liquido_real:,.2f}".replace(',', 'v').replace('.', ',').replace('v', '.'))
             col_m2.metric("Margem Real Efetiva", f"{margem_real_efetiva:.1f}%")
 
             if taxa_fixa_canal > 0 and (taxa_fixa_canal / preco_sugerido * 100) > 15:
@@ -487,7 +537,7 @@ elif pagina == "🧮 Calculadora de Precificação":
             fig_pizza_prec.update_traces(textposition='inside', textinfo='percent+label')
             st.plotly_chart(fig_pizza_prec, use_container_width=True)
         else:
-            st.error("A soma das taxas e margens ultrapassa 100%.")
+            st.error("A soma das taxas e margens ultrapassa 100%. Ajuste as porcentagens.")
 
 # ==============================================================================
 # PÁGINA 3: PAINEL ADMINISTRATIVO (GESTÃO DE LICENÇAS)
@@ -513,16 +563,20 @@ elif pagina == "👑 Painel Admin (Gestão de Licenças)" and eh_admin:
                 st.caption(f"E-mail: {item.get('email', 'N/A')}")
             
             with col_status:
-                if item.get("pago"):
-                    st.success("🟢 Acesso Liberado")
+                es_admin_item = str(item.get("perfil", "")).strip().lower() == "admin"
+                if item.get("pago") or es_admin_item:
+                    st.success("🟢 Acesso Liberado" + (" (Admin)" if es_admin_item else ""))
                 else:
                     st.error("🔴 Aguardando Pagamento")
                     
             with col_acao:
-                btn_rotulo = "Bloquear" if item.get("pago") else "Liberar Acesso"
-                if st.button(btn_rotulo, key=f"btn_{item['id']}"):
-                    if alternar_status_pagamento(item['id'], item.get("pago", False)):
-                        st.success("Status atualizado com sucesso!")
-                        st.rerun()
+                if not es_admin_item:
+                    btn_rotulo = "Bloquear" if item.get("pago") else "Liberar Acesso"
+                    if st.button(btn_rotulo, key=f"btn_{item['id']}"):
+                        if alternar_status_pagamento(item['id'], item.get("pago", False)):
+                            st.success("Status atualizado com sucesso!")
+                            st.rerun()
+                else:
+                    st.info("Conta Mestra")
     else:
         st.info("Nenhum lojista cadastrado até o momento.")
