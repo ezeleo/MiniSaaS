@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import requests
 import io
 import unicodedata
 from auth_service import (
@@ -16,7 +17,7 @@ from auth_service import (
 # CONFIGURAÇÃO E AUTENTICAÇÃO (SUPABASE SAAS)
 # ==============================================================================
 st.set_page_config(
-    page_title="Gestor Financeiro & Precificação E-Commerce",
+    page_title="Gestor Financeiro & Inteligência E-Commerce",
     page_icon="📊",
     layout="wide"
 )
@@ -89,16 +90,19 @@ if st.sidebar.button("🚪 Sair / Logout"):
 
 st.sidebar.markdown("---")
 
+# --- MENU NAVEGACIONAL COM A NOVA FERRAMENTA DE MINERAÇÃO ---
 if eh_admin:
     opcoes_menu = [
         "📊 Fluxo de Caixa & DRE Universal", 
         "🧮 Calculadora de Precificação",
+        "⚡ Mineração de Mercado (Mercado Livre)",
         "👑 Painel Admin (Gestão de Licenças)"
     ]
 elif est_pago:
     opcoes_menu = [
         "📊 Fluxo de Caixa & DRE Universal", 
-        "🧮 Calculadora de Precificação"
+        "🧮 Calculadora de Precificação",
+        "⚡ Mineração de Mercado (Mercado Livre)"
     ]
 else:
     opcoes_menu = ["🔒 Acesso Bloqueado"]
@@ -112,16 +116,12 @@ pagina = st.sidebar.radio("Navegar para:", opcoes_menu)
 if pagina == "🔒 Acesso Bloqueado" or (not eh_admin and not est_pago):
     st.error("⛔ Acesso Restrito / Licença Inativa ou Expirada")
     st.warning(
-        "Sua licença atual de acesso está **inativa ou expirou (30 dias de validade)**. "
-        "Realize a renovação abaixo para continuar acessando o DRE e a Calculadora."
+        "Sua licença atual de acesso está **inativa ou expirou**. "
+        "Realize a renovação abaixo para continuar acessando os módulos do sistema."
     )
     
     user_id_atual = dados_user.get("user_id")
-    
-    link_mp = gerar_link_pagamento_mp(
-        user_id=user_id_atual,
-        email=dados_user.get("email")
-    )
+    link_mp = gerar_link_pagamento_mp(user_id=user_id_atual, email=dados_user.get("email"))
 
     if link_mp:
         st.markdown(
@@ -159,12 +159,12 @@ if pagina == "🔒 Acesso Bloqueado" or (not eh_admin and not est_pago):
                 st.success("🎉 Pagamento confirmado com sucesso! Licença estendida por 30 dias.")
                 st.rerun()
             else:
-                st.error("Ainda não identificamos a aprovação do seu pagamento. Se pagou via Pix há poucos segundos, aguarde uns instantes e tente novamente.")
+                st.error("Ainda não identificamos a aprovação do seu pagamento. Aguarde alguns instantes e tente novamente.")
 
     st.stop()
 
 # ==============================================================================
-# MOTOR INTELIGENTE DE PROCESSAMENTO DE PLANILHAS (MOTOR HEURÍSTICO)
+# MOTOR INTELIGENTE DE PROCESSAMENTO DE PLANILHAS (FLUXO DE CAIXA)
 # ==============================================================================
 
 def remover_acentos(texto):
@@ -512,7 +512,6 @@ elif pagina == "🧮 Calculadora de Precificação":
             fig_pizza_prec.update_traces(textposition='inside', textinfo='percent+label')
             st.plotly_chart(fig_pizza_prec, use_container_width=True)
 
-            # Exportação do relatório do produto para Excel
             st.markdown("---")
             st.subheader("📥 Exportar Relatório do Produto")
             df_export = pd.DataFrame([
@@ -543,7 +542,122 @@ elif pagina == "🧮 Calculadora de Precificação":
             st.error("A soma das taxas e margens ultrapassa 100%. Ajuste as porcentagens.")
 
 # ==============================================================================
-# PÁGINA 3: PAINEL ADMINISTRATIVO (GESTÃO DE LICENÇAS)
+# PÁGINA 3: MINERAÇÃO DE MERCADO (MERCADO LIVRE API)
+# ==============================================================================
+elif pagina == "⚡ Mineração de Mercado (Mercado Livre)":
+    st.title("⚡ Mineração de Mercado & Análise Concorrencial")
+    st.caption("Pesquise concorrentes em tempo real e analise faixas de preço no Mercado Livre.")
+
+    # Carrega as chaves salvas em Secrets
+    APP_ID = st.secrets.get("ML_APP_ID", "SEU_APP_ID_AQUI")
+    CLIENT_SECRET = st.secrets.get("ML_CLIENT_SECRET", "SEU_CLIENT_SECRET_AQUI")
+
+    @st.cache_data(ttl=20000)
+    def obter_access_token(app_id, client_secret):
+        if app_id == "SEU_APP_ID_AQUI" or client_secret == "SEU_CLIENT_SECRET_AQUI":
+            return None
+        url = "https://api.mercadolibre.com/oauth/token"
+        payload = {
+            "grant_type": "client_credentials",
+            "client_id": app_id,
+            "client_secret": client_secret
+        }
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        try:
+            response = requests.post(url, data=payload, headers=headers, timeout=10)
+            if response.status_code == 200:
+                return response.json().get("access_token")
+            return None
+        except Exception:
+            return None
+
+    # Parâmetros na Sidebar
+    st.sidebar.header("🎯 Parâmetros da Mineração")
+    termo_busca = st.sidebar.text_input("Produto / Termo", value="micro retifica")
+    custo_unitario = st.sidebar.number_input("Seu Custo Unitário (R$)", value=90.00, step=5.0)
+    investimento_total = st.sidebar.number_input("Investimento Total (R$)", value=5000.00, step=500.0)
+
+    st.sidebar.subheader("⚙️ Taxas da Operação")
+    taxa_ml = st.sidebar.slider("Taxa Marketplace (%)", 10.0, 25.0, 16.5) / 100
+    imposto = st.sidebar.slider("Imposto (%)", 0.0, 20.0, 6.0) / 100
+    frete_fixo = st.sidebar.number_input("Frete Médio (R$)", value=21.00, step=1.0)
+
+    btn_buscar = st.sidebar.button("🚀 Analisar Mercado", use_container_width=True)
+
+    def buscar_produtos_api(termo):
+        token = obter_access_token(APP_ID, CLIENT_SECRET)
+        url = "https://api.mercadolibre.com/sites/MLB/search"
+        params = {"q": termo, "limit": 30}
+        headers = {"User-Agent": "Mozilla/5.0"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=10)
+            if response.status_code in [401, 403] and not token:
+                st.error("🔒 **Acesso Restrito:** As credenciais `ML_APP_ID` e `ML_CLIENT_SECRET` precisam ser configuradas no menu Secrets do Streamlit.")
+                return None
+            elif response.status_code != 200:
+                st.error(f"Erro na comunicação com a API (Status: {response.status_code}).")
+                return None
+
+            dados = response.json()
+            resultados = dados.get("results", [])
+            if not resultados:
+                return None
+
+            dados_produtos = []
+            for item in resultados:
+                preco = item.get("price", 0.0)
+                titulo = item.get("title", "")
+                permalink = item.get("permalink", "")
+                condicao = item.get("condition", "new")
+                if preco > 15.0 and condicao == "new":
+                    dados_produtos.append({"Produto": titulo, "Preco": float(preco), "Link": permalink})
+            
+            df = pd.DataFrame(dados_produtos).drop_duplicates(subset=["Produto"]).head(20)
+            return df
+        except Exception as e:
+            st.error(f"Erro na conexão: {e}")
+            return None
+
+    if btn_buscar:
+        with st.spinner("Consultando anúncios no Mercado Livre..."):
+            df_m = buscar_produtos_api(termo_busca)
+
+        if df_m is not None and not df_m.empty:
+            preco_medio = df_m["Preco"].mean()
+            preco_venda = preco_medio * 0.95 
+            receita_liquida = preco_venda - (preco_venda * taxa_ml) - (preco_venda * imposto) - frete_fixo
+            lucro_unidade = receita_liquida - custo_unitario
+            margem_percentual = (lucro_unidade / preco_venda) * 100 if preco_venda > 0 else 0
+            estoque_inicial = investimento_total // custo_unitario if custo_unitario > 0 else 0
+            roi = ((lucro_unidade * estoque_inicial) / investimento_total) * 100 if investimento_total > 0 else 0
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Preço Médio", f"R$ {preco_medio:.2f}")
+            c2.metric("Sugestão (-5%)", f"R$ {preco_venda:.2f}")
+            c3.metric("Margem Est.", f"{margem_percentual:.1f}%")
+            c4.metric("ROI Previsto", f"{roi:.1f}%")
+
+            st.markdown("---")
+            col_l, col_r = st.columns([2, 1])
+            with col_l:
+                fig = px.histogram(df_m, x="Preco", nbins=10, title="Distribuição de Preços", color_discrete_sequence=['#00D4B1'])
+                st.plotly_chart(fig, use_container_width=True)
+            with col_r:
+                st.subheader("💡 Diagnóstico")
+                st.write(f"• **Estoque Inicial:** {int(estoque_inicial)} un")
+                st.write(f"• **Lucro Líquido / Un:** R$ {lucro_unidade:.2f}")
+                if roi > 30 and margem_percentual > 15:
+                    st.success("🚀 Oportunidade de alta viabilidade.")
+                else:
+                    st.warning("⚖️ Margem comprimida, avalie seus custos.")
+
+            st.dataframe(df_m, column_config={"Link": st.column_config.LinkColumn("Anúncio ML")}, use_container_width=True)
+
+# ==============================================================================
+# PÁGINA 4: PAINEL ADMINISTRATIVO (GESTÃO DE LICENÇAS)
 # ==============================================================================
 elif pagina == "👑 Painel Admin (Gestão de Licenças)" and eh_admin:
     st.title("👑 Painel Administrativo")
