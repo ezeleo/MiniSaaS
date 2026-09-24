@@ -90,7 +90,7 @@ if st.sidebar.button("🚪 Sair / Logout"):
 
 st.sidebar.markdown("---")
 
-# --- MENU NAVEGACIONAL COM A NOVA FERRAMENTA DE MINERAÇÃO ---
+# --- MENU NAVEGACIONAL ---
 if eh_admin:
     opcoes_menu = [
         "📊 Fluxo de Caixa & DRE Universal", 
@@ -111,7 +111,7 @@ st.sidebar.title("📌 Menu Principal")
 pagina = st.sidebar.radio("Navegar para:", opcoes_menu)
 
 # ==============================================================================
-# TELA DE BLOQUEIO (PARA USUÁRIOS NÃO PAGOS E NÃO ADMINS)
+# TELA DE BLOQUEIO
 # ==============================================================================
 if pagina == "🔒 Acesso Bloqueado" or (not eh_admin and not est_pago):
     st.error("⛔ Acesso Restrito / Licença Inativa ou Expirada")
@@ -164,9 +164,8 @@ if pagina == "🔒 Acesso Bloqueado" or (not eh_admin and not est_pago):
     st.stop()
 
 # ==============================================================================
-# MOTOR INTELIGENTE DE PROCESSAMENTO DE PLANILHAS (FLUXO DE CAIXA)
+# MOTOR INTELIGENTE DE PROCESSAMENTO DE PLANILHAS
 # ==============================================================================
-
 def remover_acentos(texto):
     if not isinstance(texto, str):
         return str(texto)
@@ -548,13 +547,13 @@ elif pagina == "⚡ Mineração de Mercado (Mercado Livre)":
     st.title("⚡ Mineração de Mercado & Análise Concorrencial")
     st.caption("Pesquise concorrentes em tempo real e analise faixas de preço no Mercado Livre.")
 
-    # Carrega as chaves salvas em Secrets
-    APP_ID = st.secrets.get("ML_APP_ID", "SEU_APP_ID_AQUI")
-    CLIENT_SECRET = st.secrets.get("ML_CLIENT_SECRET", "SEU_CLIENT_SECRET_AQUI")
+    # Busca segura das chaves em Secrets
+    APP_ID = str(st.secrets.get("ML_APP_ID", "SEU_APP_ID_AQUI"))
+    CLIENT_SECRET = str(st.secrets.get("ML_CLIENT_SECRET", "SEU_CLIENT_SECRET_AQUI"))
 
     @st.cache_data(ttl=20000)
     def obter_access_token(app_id, client_secret):
-        if app_id == "SEU_APP_ID_AQUI" or client_secret == "SEU_CLIENT_SECRET_AQUI":
+        if not app_id or not client_secret or app_id == "SEU_APP_ID_AQUI" or client_secret == "SEU_CLIENT_SECRET_AQUI":
             return None
         url = "https://api.mercadolibre.com/oauth/token"
         payload = {
@@ -657,7 +656,7 @@ elif pagina == "⚡ Mineração de Mercado (Mercado Livre)":
             st.dataframe(df_m, column_config={"Link": st.column_config.LinkColumn("Anúncio ML")}, use_container_width=True)
 
 # ==============================================================================
-# PÁGINA 4: PAINEL ADMINISTRATIVO (GESTÃO DE LICENÇAS)
+# PÁGINA 4: PAINEL ADMINISTRATIVO
 # ==============================================================================
 elif pagina == "👑 Painel Admin (Gestão de Licenças)" and eh_admin:
     st.title("👑 Painel Administrativo")
