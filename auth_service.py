@@ -1,5 +1,6 @@
 import os
 import time
+from datetime import datetime, timedelta, timezone
 import mercadopago
 import streamlit as st
 from supabase import create_client, Client
@@ -7,7 +8,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Tenta obter as credenciais via st.secrets de forma segura sem lançar exceção
 SUPABASE_URL = None
 SUPABASE_KEY = None
 
@@ -19,7 +19,6 @@ try:
 except Exception:
     pass
 
-# Se não encontrou em st.secrets, utiliza as variáveis de ambiente (.env)
 if not SUPABASE_URL:
     SUPABASE_URL = os.getenv("SUPABASE_URL")
 if not SUPABASE_KEY:
@@ -52,12 +51,11 @@ def criar_novo_usuario(email: str, senha: str, nome_loja: str):
                 "nome_loja": nome_loja,
                 "plano": "Gratuito",
                 "perfil": "user",
-                "pago": False
+                "pago": False,
+                "data_expiracao": None
             }
             
-            # Insere o perfil do lojista utilizando a chave pública anon
             supabase.table("perfis_lojistas").upsert(dados_perfil).execute()
-            
             return True, "✅ Conta criada com sucesso! Já pode fazer login."
         else:
             return False, "⚠️ Não foi possível registrar o utilizador."
@@ -70,7 +68,7 @@ def criar_novo_usuario(email: str, senha: str, nome_loja: str):
 
 def autenticar_usuario(email: str, senha: str):
     """
-    Autentica o e-mail e senha no Supabase com resiliência a falhas temporárias (ex: 503 Service Unavailable).
+    Autentica o e-mail e senha no Supabase e valida a validade do acesso de 30 dias.
     """
     tentativas = 3
     for i in range(tentativas):
@@ -81,25 +79,35 @@ def autenticar_usuario(email: str, senha: str):
                 user_id = resposta.user.id
                 user_email = resposta.user.email
                 
-                # Busca perfil no banco
                 perfil_res = supabase.table("perfis_lojistas").select("*").eq("id", user_id).execute()
                 
                 perfil_definido = "user"
                 nome_loja = "Minha Loja"
                 plano = "Gratuito"
                 pago = False
+                data_expiracao_str = None
 
                 if perfil_res.data and len(perfil_res.data) > 0:
                     dados_banco = perfil_res.data[0]
                     perfil_definido = str(dados_banco.get("perfil", "user")).strip().lower()
                     nome_loja = dados_banco.get("nome_loja", "Minha Loja")
                     plano = dados_banco.get("plano", "Gratuito")
+                    data_expiracao_str = dados_banco.get("data_expiracao")
                     
-                    # REGRA DE ISENÇÃO DE ADMIN: Admin tem pago=True automaticamente
                     if perfil_definido == "admin":
                         pago = True
                     else:
                         pago = dados_banco.get("pago", False)
+                        # Checa expiração se constar data no banco
+                        if pago and data_expiracao_str:
+                            try:
+                                dt_exp = datetime.fromisoformat(data_expiracao_str.replace('Z', '+00:00'))
+                                if datetime.now(timezone.utc) > dt_exp:
+                                    pago = False
+                                    _garantir_autenticacao()
+                                    supabase.table("perfis_lojistas").update({"pago": False}).eq("id", user_id).execute()
+                            except Exception:
+                                pass
 
                 dados_sessao = {
                     "user_id": user_id,
@@ -108,6 +116,7 @@ def autenticar_usuario(email: str, senha: str):
                     "plano": plano,
                     "perfil": perfil_definido,
                     "pago": pago,
+                    "data_expiracao": data_expiracao_str,
                     "access_token": resposta.session.access_token if resposta.session else None
                 }
                     
@@ -127,7 +136,6 @@ def autenticar_usuario(email: str, senha: str):
 # ==============================================================================
 
 def _obter_mp_token():
-    """Busca o token do Mercado Pago nos Secrets ou no .env"""
     try:
         if "MP_ACCESS_TOKEN" in st.secrets:
             return st.secrets["MP_ACCESS_TOKEN"]
@@ -135,9 +143,8 @@ def _obter_mp_token():
         pass
     return os.getenv("MP_ACCESS_TOKEN")
 
-
 def gerar_link_pagamento_mp(user_id: str, email: str, valor: float = 49.90) -> str | None:
-    """Gera um link de checkout preference do Mercado Pago passando o user_id como external_reference."""
+    """Gera link de pagamento individual para renovação mensal de 30 dias."""
     try:
         mp_token = _obter_mp_token()
         if not mp_token:
@@ -148,7 +155,7 @@ def gerar_link_pagamento_mp(user_id: str, email: str, valor: float = 49.90) -> s
 
         preference_data = {
             "items": [{
-                "title": "Assinatura Mensal - Gestor Financeiro SaaS",
+                "title": "Acesso 30 Dias - Gestor Financeiro SaaS",
                 "quantity": 1,
                 "unit_price": float(valor),
                 "currency_id": "BRL"
@@ -157,29 +164,21 @@ def gerar_link_pagamento_mp(user_id: str, email: str, valor: float = 49.90) -> s
                 "email": email
             },
             "external_reference": str(user_id),
-            "back_urls": {
-                "success": "https://seu-saas.streamlit.app",
-                "failure": "https://seu-saas.streamlit.app",
-                "pending": "https://seu-saas.streamlit.app"
-            },
             "auto_return": "approved"
         }
 
         preference_response = sdk.preference().create(preference_data)
         preference = preference_response.get("response", {})
-        
-        # Se for teste/sandbox pode trocar por preference.get("sandbox_init_point")
         return preference.get("init_point")
 
     except Exception as e:
         st.error(f"Erro ao comunicar com Mercado Pago: {str(e)}")
         return None
 
-
 def verificar_e_atualizar_pagamento_mp(user_id: str) -> bool:
     """
-    Consulta o Mercado Pago buscando se existe algum pagamento aprovado para este user_id.
-    Se encontrar, atualiza a tabela 'perfis_lojistas' no Supabase para pago = True.
+    Consulta o Mercado Pago e, ao confirmar pagamento aprovado,
+    renova a licença concedendo +30 dias a partir de hoje.
     """
     try:
         mp_token = _obter_mp_token()
@@ -195,10 +194,16 @@ def verificar_e_atualizar_pagamento_mp(user_id: str) -> bool:
         search_result = sdk.payment().search(filters)
         results = search_result.get("response", {}).get("results", [])
 
-        # Se encontrou pelo menos 1 pagamento aprovado para este usuário
         if len(results) > 0:
+            nova_expiracao = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
             _garantir_autenticacao()
-            supabase.table("perfis_lojistas").update({"pago": True}).eq("id", user_id).execute()
+            
+            supabase.table("perfis_lojistas").update({
+                "pago": True,
+                "plano": "Pro Mensal",
+                "data_expiracao": nova_expiracao
+            }).eq("id", user_id).execute()
+            
             return True
 
         return False
@@ -212,14 +217,12 @@ def verificar_e_atualizar_pagamento_mp(user_id: str) -> bool:
 # ==============================================================================
 
 def _garantir_autenticacao():
-    """Garante que as chamadas autenticadas contenham o cabeçalho Bearer do utilizador atual."""
     if "dados_usuario" in st.session_state and st.session_state.dados_usuario:
         token = st.session_state.dados_usuario.get("access_token")
         if token:
             supabase.postgrest.auth(token)
 
 def listar_todos_lojistas():
-    """Busca todas as lojas cadastradas autenticando a requisição com o token JWT ativo."""
     try:
         _garantir_autenticacao()
         resposta = supabase.table("perfis_lojistas").select("*").order("nome_loja").execute()
@@ -229,11 +232,15 @@ def listar_todos_lojistas():
         return []
 
 def alternar_status_pagamento(user_id: str, status_atual: bool):
-    """Inverte o status de pagamento de um lojista com a permissão do utilizador logado."""
     try:
         novo_status = not status_atual
+        nova_expiracao = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat() if novo_status else None
+        
         _garantir_autenticacao()
-        supabase.table("perfis_lojistas").update({"pago": novo_status}).eq("id", user_id).execute()
+        supabase.table("perfis_lojistas").update({
+            "pago": novo_status,
+            "data_expiracao": nova_expiracao
+        }).eq("id", user_id).execute()
         return True
     except Exception as e:
         st.error(f"Erro ao alterar status de pagamento: {e}")

@@ -21,7 +21,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Inicializa o estado da sessão de autenticação no Streamlit
 if "usuario_logado" not in st.session_state:
     st.session_state.usuario_logado = False
 if "dados_usuario" not in st.session_state:
@@ -34,7 +33,6 @@ if not st.session_state.usuario_logado:
     
     aba_login, aba_cadastro = st.tabs(["Fazer Login", "Criar Nova Conta"])
     
-    # Aba 1: Login de Usuário Existente
     with aba_login:
         st.subheader("Login de Lojista")
         email_login = st.text_input("E-mail", key="login_email")
@@ -53,7 +51,6 @@ if not st.session_state.usuario_logado:
                 else:
                     st.error(resultado)
 
-    # Aba 2: Cadastro de Novo Lojista
     with aba_cadastro:
         st.subheader("Cadastrar Novo Lojista")
         nome_loja = st.text_input("Nome da sua Loja")
@@ -79,11 +76,8 @@ dados_user = st.session_state.dados_usuario or {}
 st.sidebar.success(f"**{dados_user.get('nome_loja', 'Minha Loja')}**")
 st.sidebar.caption(f"👤 {dados_user.get('email', '')}")
 
-# --- REGRAS DE NAVEGAÇÃO E RECONHECIMENTO DO ADMIN ---
 perfil_atual = str(dados_user.get("perfil", "user")).strip().lower()
 eh_admin = (perfil_atual == "admin")
-
-# O Admin é automaticamente considerado pago
 est_pago = True if eh_admin else dados_user.get("pago", False)
 
 st.sidebar.caption(f"⭐ Plano: {'Administrador' if eh_admin else dados_user.get('plano', 'Gratuito')}")
@@ -95,7 +89,6 @@ if st.sidebar.button("🚪 Sair / Logout"):
 
 st.sidebar.markdown("---")
 
-# Controle de rotas com base no pagamento/perfil
 if eh_admin:
     opcoes_menu = [
         "📊 Fluxo de Caixa & DRE Universal", 
@@ -117,15 +110,14 @@ pagina = st.sidebar.radio("Navegar para:", opcoes_menu)
 # TELA DE BLOQUEIO (PARA USUÁRIOS NÃO PAGOS E NÃO ADMINS)
 # ==============================================================================
 if pagina == "🔒 Acesso Bloqueado" or (not eh_admin and not est_pago):
-    st.error("⛔ Acesso Restrito / Licença Inativa")
+    st.error("⛔ Acesso Restrito / Licença Inativa ou Expirada")
     st.warning(
-        "Sua conta foi registrada com sucesso, porém está **aguardando a liberação de pagamento** "
-        "para acessar as ferramentas da plataforma."
+        "Sua licença atual de acesso está **inativa ou expirou (30 dias de validade)**. "
+        "Realize a renovação abaixo para continuar acessando o DRE e a Calculadora."
     )
     
     user_id_atual = dados_user.get("user_id")
     
-    # Integração automática com Mercado Pago na tela de bloqueio
     link_mp = gerar_link_pagamento_mp(
         user_id=user_id_atual,
         email=dados_user.get("email")
@@ -147,27 +139,27 @@ if pagina == "🔒 Acesso Bloqueado" or (not eh_admin and not est_pago):
                     width: 100%;
                     margin-top: 10px;
                 ">
-                    💳 Realizar Pagamento via Mercado Pago (Pix / Cartão)
+                    💳 Renovar Acesso por 30 Dias no Mercado Pago (Pix / Cartão)
                 </button>
             </a>
             """,
             unsafe_allow_html=True
         )
-        st.caption("Após concluir o pagamento na aba do Mercado Pago, volte aqui e clique no botão de checagem abaixo.")
+        st.caption("Após concluir o pagamento, retorne nesta página e clique no botão de checagem abaixo.")
     else:
-        st.info("Entre em contato com o suporte/administrador para ativar seu acesso.")
+        st.info("Entre em contato com o suporte para ativar seu acesso.")
     
     st.markdown("---")
 
     if st.button("🔄 Já efetuei o pagamento / Checar Aprovação"):
-        with st.spinner("Consultando aprovação no Mercado Pago..."):
+        with st.spinner("Consultando renovação no Mercado Pago..."):
             foi_pago = verificar_e_atualizar_pagamento_mp(user_id_atual)
             if foi_pago:
                 st.session_state.dados_usuario["pago"] = True
-                st.success("🎉 Pagamento confirmado com sucesso! Liberando acesso...")
+                st.success("🎉 Pagamento confirmado com sucesso! Licença estendida por 30 dias.")
                 st.rerun()
             else:
-                st.error("Ainda não identificamos a aprovação do seu pagamento. Se pagou via Pix há poucos segundos, aguarde uns instantes e clique novamente.")
+                st.error("Ainda não identificamos a aprovação do seu pagamento. Se pagou via Pix há poucos segundos, aguarde uns instantes e tente novamente.")
 
     st.stop()
 
@@ -176,7 +168,6 @@ if pagina == "🔒 Acesso Bloqueado" or (not eh_admin and not est_pago):
 # ==============================================================================
 
 def remover_acentos(texto):
-    """Remove acentos, caracteres especiais e espaços extras de uma string."""
     if not isinstance(texto, str):
         return str(texto)
     return ''.join(
@@ -184,9 +175,7 @@ def remover_acentos(texto):
         if unicodedata.category(c) != 'Mn'
     ).lower().strip()
 
-
 def limpar_e_converter_valor(serie):
-    """Converte valores monetários/texto em float sem multiplicar casas decimais."""
     if pd.api.types.is_numeric_dtype(serie):
         return serie.fillna(0.0).astype(float)
     
@@ -197,12 +186,7 @@ def limpar_e_converter_valor(serie):
 
     return pd.to_numeric(s_final, errors='coerce').fillna(0.0)
 
-
 def auto_detectar_estrutura(df):
-    """
-    Analisa os nomes das colunas de QUALQUER planilha e tenta mapear
-    automaticamente os conceitos de Data, Descrição, Categoria, Tipo e Valor.
-    """
     cols_norm = {col: remover_acentos(col) for col in df.columns}
     
     kw_data = ['data', 'dt', 'date', 'mes', 'periodo', 'vencimento']
@@ -225,23 +209,18 @@ def auto_detectar_estrutura(df):
                 
     return col_data, col_desc, col_cat, col_tipo, col_val
 
-
 def normalizar_df_financeiro(df, col_data, col_desc, col_cat, col_tipo, col_val):
-    """Normaliza qualquer Dataframe bruto para uma estrutura padrão."""
     df_proc = pd.DataFrame()
-    
     df_proc['Valor_Bruto'] = limpar_e_converter_valor(df[col_val])
     
     if col_tipo and col_tipo != "-- Não utilizar --":
         tipo_limpo = df[col_tipo].astype(str).apply(remover_acentos)
-        
         mapeamento_tipos = {
             'entrada': 'Entrada', 'entradas': 'Entrada', 'receita': 'Entrada', 'receitas': 'Entrada',
             'credito': 'Entrada', 'c': 'Entrada', 'venda': 'Entrada', 'vendas': 'Entrada',
             'saida': 'Saída', 'saidas': 'Saída', 'despesa': 'Saída', 'despesas': 'Saída',
             'debito': 'Saída', 'd': 'Saída', 'custo': 'Saída', 'custos': 'Saída', 'pagamento': 'Saída'
         }
-        
         df_proc['Tipo'] = tipo_limpo.map(mapeamento_tipos).fillna('Outros')
         df_proc.loc[df_proc['Valor_Bruto'] < 0, 'Tipo'] = 'Saída'
         df_proc['Valor'] = df_proc['Valor_Bruto'].abs()
@@ -266,9 +245,7 @@ def normalizar_df_financeiro(df, col_data, col_desc, col_cat, col_tipo, col_val)
 
     return df_proc[df_proc['Tipo'].isin(['Entrada', 'Saída'])]
 
-
 def carregar_dataframe_seguro(uploaded_file):
-    """Leitor universal para Excel/CSV com trava de tamanho de arquivo."""
     try:
         TAMANHO_MAX_MB = 15
         if uploaded_file.size > TAMANHO_MAX_MB * 1024 * 1024:
@@ -317,7 +294,6 @@ def carregar_dataframe_seguro(uploaded_file):
         st.error(f"Erro ao ler arquivo: {str(e)}")
         return None
 
-
 @st.cache_data
 def gerar_template_excel():
     output = io.BytesIO()
@@ -339,7 +315,6 @@ def gerar_template_excel():
         
     output.seek(0)
     return output.getvalue()
-
 
 # ==============================================================================
 # PÁGINA 1: FLUXO DE CAIXA UNIVERSAL
@@ -536,6 +511,34 @@ elif pagina == "🧮 Calculadora de Precificação":
             fig_pizza_prec = px.pie(df_dre_unit, names="Componente", values="Valor (R$)", hole=0.4, color_discrete_sequence=px.colors.qualitative.Bold)
             fig_pizza_prec.update_traces(textposition='inside', textinfo='percent+label')
             st.plotly_chart(fig_pizza_prec, use_container_width=True)
+
+            # Exportação do relatório do produto para Excel
+            st.markdown("---")
+            st.subheader("📥 Exportar Relatório do Produto")
+            df_export = pd.DataFrame([
+                {"Métrica": "Produto", "Valor": nome_prod},
+                {"Métrica": "Preço Recomendado", "Valor": f"R$ {preco_sugerido:.2f}"},
+                {"Métrica": "Custo Unitário (COGS)", "Valor": f"R$ {custo_unitario:.2f}"},
+                {"Métrica": "Embalagem + Frete", "Valor": f"R$ {custo_embalagem + custo_frete:.2f}"},
+                {"Métrica": "Comissão Marketplace", "Valor": f"R$ {v_comissao:.2f} ({comissao_pct}%)"},
+                {"Métrica": "Taxa Fixa Canal", "Valor": f"R$ {taxa_fixa_canal:.2f}"},
+                {"Métrica": "Imposto Nota Fiscal", "Valor": f"R$ {v_imposto:.2f} ({imposto_pct}%)"},
+                {"Métrica": "Lucro Líquido Real", "Valor": f"R$ {lucro_liquido_real:.2f}"},
+                {"Métrica": "Margem Efetiva", "Valor": f"{margem_real_efetiva:.2f}%"}
+            ])
+            
+            buffer_excel = io.BytesIO()
+            with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
+                df_export.to_excel(writer, sheet_name='Diagnostico', index=False)
+            buffer_excel.seek(0)
+
+            st.download_button(
+                label="📄 Baixar Diagnóstico (.xlsx)",
+                data=buffer_excel.getvalue(),
+                file_name=f"Diagnostico_{nome_prod.replace(' ', '_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
         else:
             st.error("A soma das taxas e margens ultrapassa 100%. Ajuste as porcentagens.")
 
@@ -571,7 +574,7 @@ elif pagina == "👑 Painel Admin (Gestão de Licenças)" and eh_admin:
                     
             with col_acao:
                 if not es_admin_item:
-                    btn_rotulo = "Bloquear" if item.get("pago") else "Liberar Acesso"
+                    btn_rotulo = "Bloquear" if item.get("pago") else "Liberar Acesso (+30 dias)"
                     if st.button(btn_rotulo, key=f"btn_{item['id']}"):
                         if alternar_status_pagamento(item['id'], item.get("pago", False)):
                             st.success("Status atualizado com sucesso!")
