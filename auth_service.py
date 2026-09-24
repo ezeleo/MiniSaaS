@@ -8,21 +8,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SUPABASE_URL = None
-SUPABASE_KEY = None
+# ==============================================================================
+# CARREGAMENTO DE VARIÁVEIS DE AMBIENTE / SECRETS
+# ==============================================================================
+def _obter_secret_ou_env(chave: str) -> str | None:
+    try:
+        if chave in st.secrets:
+            return str(st.secrets[chave])
+    except Exception:
+        pass
+    return os.getenv(chave)
 
-try:
-    if "SUPABASE_URL" in st.secrets:
-        SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    if "SUPABASE_KEY" in st.secrets:
-        SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-except Exception:
-    pass
-
-if not SUPABASE_URL:
-    SUPABASE_URL = os.getenv("SUPABASE_URL")
-if not SUPABASE_KEY:
-    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_URL = _obter_secret_ou_env("SUPABASE_URL")
+SUPABASE_KEY = _obter_secret_ou_env("SUPABASE_KEY")
 
 @st.cache_resource
 def get_supabase_client() -> Client:
@@ -34,6 +32,9 @@ def get_supabase_client() -> Client:
 
 supabase = get_supabase_client()
 
+# ==============================================================================
+# AUTENTICAÇÃO E GESTÃO DE USUÁRIOS
+# ==============================================================================
 def criar_novo_usuario(email: str, senha: str, nome_loja: str):
     """
     Cadastra o utilizador no sistema de Auth nativo do Supabase
@@ -98,7 +99,6 @@ def autenticar_usuario(email: str, senha: str):
                         pago = True
                     else:
                         pago = dados_banco.get("pago", False)
-                        # Checa expiração se constar data no banco
                         if pago and data_expiracao_str:
                             try:
                                 dt_exp = datetime.fromisoformat(data_expiracao_str.replace('Z', '+00:00'))
@@ -134,19 +134,10 @@ def autenticar_usuario(email: str, senha: str):
 # ==============================================================================
 # INTEGRAÇÃO MERCADO PAGO
 # ==============================================================================
-
-def _obter_mp_token():
-    try:
-        if "MP_ACCESS_TOKEN" in st.secrets:
-            return st.secrets["MP_ACCESS_TOKEN"]
-    except Exception:
-        pass
-    return os.getenv("MP_ACCESS_TOKEN")
-
 def gerar_link_pagamento_mp(user_id: str, email: str, valor: float = 49.90) -> str | None:
     """Gera link de pagamento individual para renovação mensal de 30 dias."""
     try:
-        mp_token = _obter_mp_token()
+        mp_token = _obter_secret_ou_env("MP_ACCESS_TOKEN")
         if not mp_token:
             st.error("Chave MP_ACCESS_TOKEN não configurada no ambiente.")
             return None
@@ -181,7 +172,7 @@ def verificar_e_atualizar_pagamento_mp(user_id: str) -> bool:
     renova a licença concedendo +30 dias a partir de hoje.
     """
     try:
-        mp_token = _obter_mp_token()
+        mp_token = _obter_secret_ou_env("MP_ACCESS_TOKEN")
         if not mp_token:
             return False
 
@@ -215,7 +206,6 @@ def verificar_e_atualizar_pagamento_mp(user_id: str) -> bool:
 # ==============================================================================
 # FUNÇÕES DE ADMINISTRAÇÃO (GESTÃO DE LICENÇAS)
 # ==============================================================================
-
 def _garantir_autenticacao():
     if "dados_usuario" in st.session_state and st.session_state.dados_usuario:
         token = st.session_state.dados_usuario.get("access_token")
