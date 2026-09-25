@@ -95,14 +95,14 @@ if eh_admin:
     opcoes_menu = [
         "📊 Fluxo de Caixa & DRE Universal", 
         "🧮 Calculadora de Precificação",
-        "⚡ Mineração de Mercado (Mercado Livre)",
+        "⚡ Central de Tendências (Mercado Livre)",
         "👑 Painel Admin (Gestão de Licenças)"
     ]
 elif est_pago:
     opcoes_menu = [
         "📊 Fluxo de Caixa & DRE Universal", 
         "🧮 Calculadora de Precificação",
-        "⚡ Mineração de Mercado (Mercado Livre)"
+        "⚡ Central de Tendências (Mercado Livre)"
     ]
 else:
     opcoes_menu = ["🔒 Acesso Bloqueado"]
@@ -530,128 +530,105 @@ elif pagina == "🧮 Calculadora de Precificação":
             st.error("A soma das taxas e margens ultrapassa 100%. Ajuste as porcentagens.")
 
 # ==============================================================================
-# PÁGINA 3: MINERAÇÃO DE MERCADO (MERCADO LIVRE API)
+# PÁGINA 3: MINERAÇÃO DE TENDÊNCIAS & MAIS VENDIDOS (ML TRENDS)
 # ==============================================================================
-elif pagina == "⚡ Mineração de Mercado (Mercado Livre)":
-    st.title("⚡ Mineração de Mercado & Análise Concorrencial")
-    st.caption("Pesquise concorrentes em tempo real e analise faixas de preço no Mercado Livre.")
+elif pagina == "⚡ Central de Tendências (Mercado Livre)":
+    st.title("⚡ Central de Tendências & Produtos Mais Vendidos")
+    st.caption("Consulte os termos mais pesquisados e os produtos em alta diretamente das APIs oficiais do Mercado Livre.")
 
-    # Busca segura das chaves em Secrets
-    APP_ID = str(st.secrets.get("ML_APP_ID", "SEU_APP_ID_AQUI"))
-    CLIENT_SECRET = str(st.secrets.get("ML_CLIENT_SECRET", "SEU_CLIENT_SECRET_AQUI"))
+    CATEGORIAS_ML = {
+        "Acessórios para Veículos": "MLB5672",
+        "Alimentos e Bebidas": "MLB1403",
+        "Beleza e Cuidado Pessoal": "MLB1246",
+        "Casa, Móveis e Decoração": "MLB1574",
+        "Celulares e Telefones": "MLB1051",
+        "Eletrodomésticos": "MLB5726",
+        "Esportes e Fitness": "MLB1276",
+        "Ferramentas": "MLB263532",
+        "Informática": "MLB1648",
+        "Moda / Calçados e Roupas": "MLB1430",
+        "Saúde": "MLB409431"
+    }
 
-    @st.cache_data(ttl=20000)
-    def obter_access_token(app_id, client_secret):
-        if not app_id or not client_secret or app_id == "SEU_APP_ID_AQUI" or client_secret == "SEU_CLIENT_SECRET_AQUI":
-            return None
-        url = "https://api.mercadolibre.com/oauth/token"
-        payload = {
-            "grant_type": "client_credentials",
-            "client_id": app_id,
-            "client_secret": client_secret
-        }
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    col_cat, _ = st.columns([1, 1], gap="large")
+
+    with col_cat:
+        st.subheader("🎯 Seleção de Categoria")
+        cat_nome = st.selectbox("Escolha o Nicho de Mercado:", list(CATEGORIAS_ML.keys()))
+        cat_id = CATEGORIAS_ML[cat_nome]
+
+    @st.cache_data(ttl=86400)
+    def obter_tendencias_ml(categoria_id):
+        url = f"https://api.mercadolibre.com/trends/MLB/{categoria_id}"
+        headers = {"User-Agent": "Mozilla/5.0"}
         try:
-            response = requests.post(url, data=payload, headers=headers, timeout=10)
-            if response.status_code == 200:
-                return response.json().get("access_token")
-            return None
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                return resp.json()
+            return []
         except Exception:
-            return None
+            return []
 
-    # Parâmetros na Sidebar
-    st.sidebar.header("🎯 Parâmetros da Mineração")
-    termo_busca = st.sidebar.text_input("Produto / Termo", value="micro retifica")
-    custo_unitario = st.sidebar.number_input("Seu Custo Unitário (R$)", value=90.00, step=5.0)
-    investimento_total = st.sidebar.number_input("Investimento Total (R$)", value=5000.00, step=500.0)
-
-    st.sidebar.subheader("⚙️ Taxas da Operação")
-    taxa_ml = st.sidebar.slider("Taxa Marketplace (%)", 10.0, 25.0, 16.5) / 100
-    imposto = st.sidebar.slider("Imposto (%)", 0.0, 20.0, 6.0) / 100
-    frete_fixo = st.sidebar.number_input("Frete Médio (R$)", value=21.00, step=1.0)
-
-    btn_buscar = st.sidebar.button("🚀 Analisar Mercado", use_container_width=True)
-
-    def buscar_produtos_api(termo):
-        token = obter_access_token(APP_ID, CLIENT_SECRET)
-        url = "https://api.mercadolibre.com/sites/MLB/search"
-        params = {"q": termo, "limit": 30}
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        }
-
+    @st.cache_data(ttl=86400)
+    def obter_mais_vendidos_ml(categoria_id):
+        url = f"https://api.mercadolibre.com/highlights/MLB/category/{categoria_id}"
+        headers = {"User-Agent": "Mozilla/5.0"}
         try:
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                dados = resp.json()
+                return dados.get("content", [])
+            return []
+        except Exception:
+            return []
+
+    with st.spinner(f"Buscando dados em tempo real para {cat_nome}..."):
+        tendencias = obter_tendencias_ml(cat_id)
+        mais_vendidos = obter_mais_vendidos_ml(cat_id)
+
+    st.markdown("---")
+
+    tab1, tab2 = st.tabs(["🔥 Termos Mais Buscados (Tendências)", "🏆 Produtos em Alta / Mais Vendidos"])
+
+    with tab1:
+        st.subheader(f"Palavras-chave em ascensão em {cat_nome}")
+        if tendencias:
+            df_trends = pd.DataFrame(tendencias)
+            df_trends.index = df_trends.index + 1
+            df_trends.rename(columns={"keyword": "Termo de Busca / Produto Demandado", "url": "Link de Pesquisa ML"}, inplace=True)
             
-            response = requests.get(url, params=params, headers=headers, timeout=10)
+            st.dataframe(
+                df_trends[["Termo de Busca / Produto Demandado"]], 
+                use_container_width=True,
+                height=400
+            )
+            st.info("💡 **Dica de Ouro:** Utilize esses termos para títulos de anúncios e tags de SEO no seu e-commerce.")
+        else:
+            st.warning("Não foi possível carregar as tendências desta categoria no momento.")
+
+    with tab2:
+        st.subheader(f"Top Itens Destaques em {cat_nome}")
+        if mais_vendidos:
+            itens_lista = []
+            for item in mais_vendidos:
+                if item.get("type") == "ITEM":
+                    itens_lista.append({
+                        "ID Item": item.get("id"),
+                        "Posição no Ranking": item.get("position"),
+                        "Link no Mercado Livre": f"https://produto.mercadolivre.com.br/{item.get('id')}"
+                    })
             
-            # Fallback automático em caso de bloqueio 403 / 401
-            if response.status_code in [401, 403]:
-                headers.pop("Authorization", None)
-                response = requests.get(url, params=params, headers=headers, timeout=10)
-
-            if response.status_code != 200:
-                st.warning("⚠️ O servidor do Mercado Livre está limitando consultas no momento. Tente novamente em instantes.")
-                return None
-
-            dados = response.json()
-            resultados = dados.get("results", [])
-            if not resultados:
-                st.warning("Nenhum produto encontrado para este termo.")
-                return None
-
-            dados_produtos = []
-            for item in resultados:
-                preco = item.get("price", 0.0)
-                titulo = item.get("title", "")
-                permalink = item.get("permalink", "")
-                condicao = item.get("condition", "new")
-                if preco > 15.0 and condicao == "new":
-                    dados_produtos.append({"Produto": titulo, "Preco": float(preco), "Link": permalink})
-            
-            df = pd.DataFrame(dados_produtos).drop_duplicates(subset=["Produto"]).head(20)
-            return df
-
-        except Exception as e:
-            st.error("Erro ao conectar aos serviços de mineração de mercado.")
-            return None
-
-    if btn_buscar:
-        with st.spinner("Consultando anúncios no Mercado Livre..."):
-            df_m = buscar_produtos_api(termo_busca)
-
-        if df_m is not None and not df_m.empty:
-            preco_medio = df_m["Preco"].mean()
-            preco_venda = preco_medio * 0.95 
-            receita_liquida = preco_venda - (preco_venda * taxa_ml) - (preco_venda * imposto) - frete_fixo
-            lucro_unidade = receita_liquida - custo_unitario
-            margem_percentual = (lucro_unidade / preco_venda) * 100 if preco_venda > 0 else 0
-            estoque_inicial = investimento_total // custo_unitario if custo_unitario > 0 else 0
-            roi = ((lucro_unidade * estoque_inicial) / investimento_total) * 100 if investimento_total > 0 else 0
-
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Preço Médio", f"R$ {preco_medio:.2f}")
-            c2.metric("Sugestão (-5%)", f"R$ {preco_venda:.2f}")
-            c3.metric("Margem Est.", f"{margem_percentual:.1f}%")
-            c4.metric("ROI Previsto", f"{roi:.1f}%")
-
-            st.markdown("---")
-            col_l, col_r = st.columns([2, 1])
-            with col_l:
-                fig = px.histogram(df_m, x="Preco", nbins=10, title="Distribuição de Preços", color_discrete_sequence=['#00D4B1'])
-                st.plotly_chart(fig, use_container_width=True)
-            with col_r:
-                st.subheader("💡 Diagnóstico")
-                st.write(f"• **Estoque Inicial:** {int(estoque_inicial)} un")
-                st.write(f"• **Lucro Líquido / Un:** R$ {lucro_unidade:.2f}")
-                if roi > 30 and margem_percentual > 15:
-                    st.success("🚀 Oportunidade de alta viabilidade.")
-                else:
-                    st.warning("⚖️ Margem comprimida, avalie seus custos.")
-
-            st.dataframe(df_m, column_config={"Link": st.column_config.LinkColumn("Anúncio ML")}, use_container_width=True)
+            df_top = pd.DataFrame(itens_lista)
+            if not df_top.empty:
+                st.dataframe(
+                    df_top,
+                    column_config={"Link no Mercado Livre": st.column_config.LinkColumn("Ver no Mercado Livre")},
+                    use_container_width=True
+                )
+            else:
+                st.info("Ranking de itens indisponível para esta subcategoria específica.")
+        else:
+            st.warning("Não foi possível carregar a lista de mais vendidos desta categoria no momento.")
 
 # ==============================================================================
 # PÁGINA 4: PAINEL ADMINISTRATIVO
