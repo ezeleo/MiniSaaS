@@ -557,34 +557,28 @@ elif pagina == "⚡ Central de Tendências (Mercado Livre)":
         cat_nome = st.selectbox("Escolha o Nicho de Mercado:", list(CATEGORIAS_ML.keys()))
         cat_id = CATEGORIAS_ML[cat_nome]
 
-    @st.cache_data(ttl=86400)
-    def obter_tendencias_ml(categoria_id):
-        url = f"https://api.mercadolibre.com/trends/MLB/{categoria_id}"
-        headers = {"User-Agent": "Mozilla/5.0"}
+    @st.cache_data(ttl=3600)
+    def obter_dados_ml(url):
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
+        }
         try:
-            resp = requests.get(url, headers=headers, timeout=10)
+            resp = requests.get(url, headers=headers, timeout=12)
             if resp.status_code == 200:
-                return resp.json()
-            return []
-        except Exception:
-            return []
-
-    @st.cache_data(ttl=86400)
-    def obter_mais_vendidos_ml(categoria_id):
-        url = f"https://api.mercadolibre.com/highlights/MLB/category/{categoria_id}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        try:
-            resp = requests.get(url, headers=headers, timeout=10)
-            if resp.status_code == 200:
-                dados = resp.json()
-                return dados.get("content", [])
-            return []
-        except Exception:
-            return []
+                return True, resp.json()
+            else:
+                return False, f"HTTP Error {resp.status_code}: {resp.text[:200]}"
+        except Exception as e:
+            return False, str(e)
 
     with st.spinner(f"Buscando dados em tempo real para {cat_nome}..."):
-        tendencias = obter_tendencias_ml(cat_id)
-        mais_vendidos = obter_mais_vendidos_ml(cat_id)
+        url_trends = f"https://api.mercadolibre.com/trends/MLB/{cat_id}"
+        url_highlights = f"https://api.mercadolibre.com/highlights/MLB/category/{cat_id}"
+        
+        ok_trends, dados_trends = obter_dados_ml(url_trends)
+        ok_highlights, dados_highlights = obter_dados_ml(url_highlights)
 
     st.markdown("---")
 
@@ -592,10 +586,11 @@ elif pagina == "⚡ Central de Tendências (Mercado Livre)":
 
     with tab1:
         st.subheader(f"Palavras-chave em ascensão em {cat_nome}")
-        if tendencias:
-            df_trends = pd.DataFrame(tendencias)
+        if ok_trends and isinstance(dados_trends, list) and len(dados_trends) > 0:
+            df_trends = pd.DataFrame(dados_trends)
             df_trends.index = df_trends.index + 1
-            df_trends.rename(columns={"keyword": "Termo de Busca / Produto Demandado", "url": "Link de Pesquisa ML"}, inplace=True)
+            col_exibir = "keyword" if "keyword" in df_trends.columns else df_trends.columns[0]
+            df_trends.rename(columns={col_exibir: "Termo de Busca / Produto Demandado"}, inplace=True)
             
             st.dataframe(
                 df_trends[["Termo de Busca / Produto Demandado"]], 
@@ -604,13 +599,17 @@ elif pagina == "⚡ Central de Tendências (Mercado Livre)":
             )
             st.info("💡 **Dica de Ouro:** Utilize esses termos para títulos de anúncios e tags de SEO no seu e-commerce.")
         else:
-            st.warning("Não foi possível carregar as tendências desta categoria no momento.")
+            st.warning("⚠️ Não foi possível carregar as tendências desta categoria no momento.")
+            if not ok_trends:
+                with st.expander("🔍 Detalhes do Erro Técnico (API ML)"):
+                    st.code(f"URL: {url_trends}\nErro: {dados_trends}")
 
     with tab2:
         st.subheader(f"Top Itens Destaques em {cat_nome}")
-        if mais_vendidos:
+        if ok_highlights and isinstance(dados_highlights, dict):
+            conteudo = dados_highlights.get("content", [])
             itens_lista = []
-            for item in mais_vendidos:
+            for item in conteudo:
                 if item.get("type") == "ITEM":
                     itens_lista.append({
                         "ID Item": item.get("id"),
@@ -618,17 +617,20 @@ elif pagina == "⚡ Central de Tendências (Mercado Livre)":
                         "Link no Mercado Livre": f"https://produto.mercadolivre.com.br/{item.get('id')}"
                     })
             
-            df_top = pd.DataFrame(itens_lista)
-            if not df_top.empty:
+            if itens_lista:
+                df_top = pd.DataFrame(itens_lista)
                 st.dataframe(
                     df_top,
                     column_config={"Link no Mercado Livre": st.column_config.LinkColumn("Ver no Mercado Livre")},
                     use_container_width=True
                 )
             else:
-                st.info("Ranking de itens indisponível para esta subcategoria específica.")
+                st.info("Nenhum item em destaque listado para esta categoria principal.")
         else:
-            st.warning("Não foi possível carregar a lista de mais vendidos desta categoria no momento.")
+            st.warning("⚠️ Não foi possível carregar a lista de mais vendidos desta categoria no momento.")
+            if not ok_highlights:
+                with st.expander("🔍 Detalhes do Erro Técnico (API ML)"):
+                    st.code(f"URL: {url_highlights}\nErro: {dados_highlights}")
 
 # ==============================================================================
 # PÁGINA 4: PAINEL ADMINISTRATIVO
