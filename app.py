@@ -126,22 +126,11 @@ if pagina == "🔒 Acesso Bloqueado" or (not eh_admin and not est_pago):
     if link_mp:
         st.markdown(
             f"""
-            <a href="{link_mp}" target="_blank">
-                <button style="
-                    background-color: #009EE3;
-                    color: white;
-                    padding: 12px 24px;
-                    border: none;
-                    border-radius: 6px;
-                    font-size: 16px;
-                    font-weight: bold;
-                    cursor: pointer;
-                    width: 100%;
-                    margin-top: 10px;
-                ">
+            [
+                
                     💳 Renovar Acesso por 30 Dias no Mercado Pago (Pix / Cartão)
-                </button>
-            </a>
+                
+            ]({link_mp})
             """,
             unsafe_allow_html=True
         )
@@ -587,22 +576,30 @@ elif pagina == "⚡ Mineração de Mercado (Mercado Livre)":
         token = obter_access_token(APP_ID, CLIENT_SECRET)
         url = "https://api.mercadolibre.com/sites/MLB/search"
         params = {"q": termo, "limit": 30}
-        headers = {"User-Agent": "Mozilla/5.0"}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        }
 
         try:
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            
             response = requests.get(url, params=params, headers=headers, timeout=10)
-            if response.status_code in [401, 403] and not token:
-                st.error("🔒 **Acesso Restrito:** As credenciais `ML_APP_ID` e `ML_CLIENT_SECRET` precisam ser configuradas no menu Secrets do Streamlit.")
-                return None
-            elif response.status_code != 200:
-                st.error(f"Erro na comunicação com a API (Status: {response.status_code}).")
+            
+            # Fallback automático em caso de bloqueio 403 / 401
+            if response.status_code in [401, 403]:
+                headers.pop("Authorization", None)
+                response = requests.get(url, params=params, headers=headers, timeout=10)
+
+            if response.status_code != 200:
+                st.warning("⚠️ O servidor do Mercado Livre está limitando consultas no momento. Tente novamente em instantes.")
                 return None
 
             dados = response.json()
             resultados = dados.get("results", [])
             if not resultados:
+                st.warning("Nenhum produto encontrado para este termo.")
                 return None
 
             dados_produtos = []
@@ -616,8 +613,9 @@ elif pagina == "⚡ Mineração de Mercado (Mercado Livre)":
             
             df = pd.DataFrame(dados_produtos).drop_duplicates(subset=["Produto"]).head(20)
             return df
+
         except Exception as e:
-            st.error(f"Erro na conexão: {e}")
+            st.error("Erro ao conectar aos serviços de mineração de mercado.")
             return None
 
     if btn_buscar:
